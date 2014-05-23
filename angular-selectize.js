@@ -130,9 +130,15 @@
 
         function getSelectedItems(model) {
             model = typeof model === 'string' ? [model] : model || [];
+            var _hash = [], _hashKeyPrefix = '10768194-ADE3-448E-96D8-65082A7B8D89';
             var selections = scope.$parent[optionsProperty].reduce(function(selected, option, index) {
               var optionValue = getOptionValue(option);
               if (model.indexOf(optionValue) >= 0) {
+                if ( typeof optionValue == "object" ) {
+                  if ( _hash.indexOf(optionValue) === -1 ) _hash.push(optionValue);
+                  // prefix is needed if selections contains objects and primitives.
+                  optionValue = _hashKeyPrefix + _hash.length
+                }
                 selected[optionValue] = index;
               }
               return selected;
