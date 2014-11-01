@@ -43,11 +43,12 @@
               options = {},         // all options
               newOptions = [],      // new options to add into selectize
               removedOptions = [],  // values of options to remove
+              userOptions = [],     // options created from selectize
               lastOptionIndex = 0;
           var selectize, newModelValue, updateTimer;
 
-        watchModel();
-        subscribeToScopeDestroy();
+          watchModel();
+          subscribeToScopeDestroy();
 
           if (attrs.ngDisabled) {
             watchParentNgDisabled();
@@ -96,6 +97,10 @@
                     unremovableIndexes[j] = true;
                     break;
                   }
+                }
+
+                if ( isNew ){
+                  if ( userOptions.indexOf(option) > -1 ) isNew = false;
                 }
 
                 if ( isNew ){
@@ -205,9 +210,30 @@
                 if (scope.multiple) {
                   selectize.on('item_add', onItemAddMultiSelect);
                   selectize.on('item_remove', onItemRemoveMultiSelect);
+                } else if (opts.create) {
+                  selectize.on('item_add', onItemAddSingleSelect);
                 }
+                selectize.on('option_add', onOptionAdd);
+                selectize.on('option_remove', onOptionRemove);
               }
             });
+          }
+
+          function onOptionAdd(value, option) {
+            options[value] = option;
+            userOptions.push(option);
+          }
+
+          function onOptionRemove(value){
+            var option = options[value];
+            if ( option ) {
+              delete options[value];
+
+              var i = userOptions.indexOf(option);
+              if ( i > -1 ) {
+                userOptions.splice(i, 1);
+              }
+            }
           }
 
           function onItemAddMultiSelect(value, $item) {
@@ -217,6 +243,21 @@
 
             if (value && model.indexOf(value) === -1) {
               model.push(value);
+
+              scope.$evalAsync(function() {
+                ngModelCtrl.$setViewValue(model);
+              });
+            }
+          }
+
+          function onItemAddSingleSelect(value, $item) {
+            var model = ngModelCtrl.$viewValue;
+            var option = options[value];
+            value = option ? getOptionValue(option) : null;
+
+
+            if (model !== value) {
+              model = value;
 
               scope.$evalAsync(function() {
                 ngModelCtrl.$setViewValue(model);
@@ -262,18 +303,30 @@
           }
 
           function getOptionValue(option) {
-            optionContext[valueName] = option;
-            return valueFn(optionContext);
+            if ( userOptions.indexOf(option) > -1 ) {
+              return option[selectize.settings.valueField];
+            } else {
+              optionContext[valueName] = option;
+              return valueFn(optionContext);
+            }
           }
 
           function getOptionLabel(option) {
-            optionContext[valueName] = option;
-            return displayFn(optionContext);
+            if ( userOptions.indexOf(option) > -1 ) {
+              return option[selectize.settings.labelField];
+            } else {
+              optionContext[valueName] = option;
+              return displayFn(optionContext);
+            }
           }
 
           function getGroupLabel(option) {
-            optionContext[valueName] = option;
-            return groupFn(optionContext);
+            if ( userOptions.indexOf(option) > -1 ) {
+              return option[selectize.settings.optgroupField];
+            } else {
+              optionContext[valueName] = option;
+              return groupFn(optionContext);
+            }
           }
 
           function subscribeToScopeDestroy() {
@@ -285,7 +338,66 @@
               if (selectize) selectize.destroy();
             });
           }
-      }
-    };
-  }]);
+
+          return;
+          // test functions to add to original options
+          // get field name from valueExpression or labelExpression
+          function getField(expressionField, expressionObj){
+            if ( !angular.isString(expressionField) || !angular.isString(expressionObj) ) return false;
+
+            var simpleField = /^[a-zA-Z_-]+$/,
+                field = false;
+
+            if ( !simpleField.test(expressionObj) ) return false;
+
+            if ( expressionField.indexOf(expressionObj + '.') === 0 ){
+              field = expressionField.substr(expressionObj.length + 1);
+            } else if ( expressionField.indexOf(expressionObj + "['") === 0 ){
+              field = expressionField.substr(expressionObj.length + 2, expressionField.length - expressionObj.length - 4);
+            }
+
+            if ( !field || !simpleField.test(field) ) return false;
+
+            return field;
+          }
+
+          function addValueToOptions(options, value){
+            if ( selectize.settings.create ){
+              var option = selectize.options[value];
+              // if create is function then option - should be correct object
+              if ( angular.isFunction(selectize.settings.create) ){
+                options.push(option);
+              } else {
+                // else - lets try to generate correct option for our collection
+                var labelField, valueField;
+                if ( valueName === valueExpression ){
+                  options.push(value);
+                } else if ( (valueField = getField(valueExpression, valueName)) && (labelField = getField(labelExpression, valueName)) ) {
+                  var groupValue = null,
+                      obj = {};
+
+                  obj[valueField] = option[selectize.settings.valueField];
+                  obj[labelField] = option[selectize.settings.labelField];
+
+                  groupValue = option[selectize.settings.optgroupField];
+
+                  if ( groupValue ){
+                    var groupField = getField(groupExpression, valueName);
+                    if ( groupField ) obj[groupField] = groupValue;
+                  }
+
+                  options.push(obj);
+                }
+              }
+            }
+          }
+
+          //option_add
+          function onOptionAdd(value, $item) {
+            var options = optionsFn(scope.$parent);
+            addValueToOptions(options, value);
+          }
+        }
+      };
+    }]);
 })(angular);
